@@ -25,7 +25,7 @@ flowchart LR
 [.github/workflows/terraform-ci.yml](.github/workflows/terraform-ci.yml) は 1 つのジョブで、次の順に実行します。
 
 1. `terraform fmt -check`
-2. AWS Emulator をインストールして起動
+2. AWS Emulator をコンテナで起動（[run-aws-emulator](https://github.com/marketplace/actions/run-aws-emulator) アクション）
 3. `terraform init` / `terraform validate`
 4. `terraform plan`
 5. `terraform apply`
@@ -37,7 +37,6 @@ flowchart LR
 ```text
 .
 ├── .github/
-│   ├── actions/setup-aws-emulator/action.yml  # エミュレーターのインストール・起動・接続設定（composite action）
 │   └── workflows/terraform-ci.yml             # CI 本体
 ├── emulator/
 │   └── aws_provider_override.tf               # エミュレーター実行時だけ terraform/ にコピーする override
@@ -51,15 +50,13 @@ flowchart LR
 
 ## 仕組み
 
-### 1. エミュレーターの起動（`.github/actions/setup-aws-emulator`）
+### 1. エミュレーターの起動（run-aws-emulator アクション）
 
-1. 本物の資格情報（`AWS_ACCESS_KEY_ID` など）が環境変数にあれば即失敗させる
-2. 公式の Debian パッケージをダウンロードしてインストール
-3. `aws-emulator --telemetry off --idle-timeout 3600` をバックグラウンドで起動し、`/__admin/health` が `ok` を返すまで待つ
-4. 以降のステップ向けに `$GITHUB_ENV` へ環境変数を書き出す
-5. `aws sts get-caller-identity` がエミュレーターのアカウント `000000000000` を返すことを確認する
+[xSAVIKx/run-aws-emulator](https://github.com/xSAVIKx/run-aws-emulator) は、AWS Emulator を入れたコンテナイメージ（`ghcr.io/xsavikx/aws-emulator`）を起動するアクションです。起動後は `/__admin/health` が `ok` を返すまで待ち、接続用の環境変数を以降のステップに渡します。
 
-エミュレーターは起動のたびにアクセスキー・設定ファイル・自己署名証明書を `~/.aws/emulator/<port>/` に生成します。それを指す環境変数を設定するだけで、AWS CLI / Terraform の接続先が切り替わります。
+非公式のコミュニティ製アクションです。そのため、ワークフローではタグではなくコミット SHA（`v1.0.1`）で固定しています。
+
+エミュレーターは起動のたびにアクセスキー・設定ファイル・自己署名証明書を `~/.aws/emulator/<port>/` に生成します。アクションはそれを指す環境変数を設定するので、AWS CLI / Terraform の接続先が切り替わります。主な環境変数は次のとおりです。
 
 ```bash
 AWS_ENDPOINT_URL=https://127.0.0.1:9297          # localhost ではなく 127.0.0.1（S3 がパススタイルになる）
@@ -70,16 +67,6 @@ AWS_EC2_METADATA_DISABLED=true
 AWS_DISABLE_HOST_PREFIX_INJECTION=true
 AWS_REGION=ap-northeast-1
 AWS_DEFAULT_REGION=ap-northeast-1
-```
-
-他のワークフローから再利用する場合は次のように書けます。
-
-```yaml
-- uses: ./.github/actions/setup-aws-emulator
-  with:
-    version: latest        # 1.0.322 のように固定も可
-    port: "9297"
-    region: ap-northeast-1
 ```
 
 ### 2. Terraform 側はエミュレーター固有の設定を持たない
@@ -115,7 +102,7 @@ provider "aws" {
 - **IAM ポリシーは評価されません。** 権限不足のテストやセキュリティの検証には使えません。
 - **1 プロセス = 1 リージョン・1 アカウント**です。複数リージョンを使う構成では、リージョンごとにポートを変えてエミュレーターを起動する必要があります。
 - **再現度（フィデリティ）はサービスや API で異なります。** 未実装の操作は HTTP 501 `NotImplemented` を返します。各リリースのサービスごとのスコアは [Releases](https://github.com/aws/aws-emulator/releases) で確認できます。
-- エミュレーターは 1 日に何度もリリースされます。急に CI が落ちるのを避けたい場合は、ワークフローの `AWS_EMULATOR_VERSION` を `1.0.322` のように固定してください（[バージョン一覧](https://downloads.aws.com/aws-emulator/packages/aws-emulator/LTS/versions.json)）。
+- エミュレーターは 1 日に何度もリリースされます。急に CI が落ちるのを避けたい場合は、ワークフローの `AWS_EMULATOR_IMAGE` を `ghcr.io/xsavikx/aws-emulator:1.0.322` のようにタグで固定してください。
 - リモートバックエンド（`backend "s3"` など）を使っている場合は、override に `terraform { backend "local" {} }` を追加すると、CI ではローカル state を使えます。
 
 ## ローカルで実行する

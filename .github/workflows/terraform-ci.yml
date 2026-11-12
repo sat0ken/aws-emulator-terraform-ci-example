@@ -15,9 +15,8 @@ concurrency:
 
 env:
   TERRAFORM_VERSION: 1.17.2
-  # 再現性を優先するなら 1.0.322 のようにバージョンを固定する。
-  # 一覧: https://downloads.aws.com/aws-emulator/packages/aws-emulator/LTS/versions.json
-  AWS_EMULATOR_VERSION: latest
+  # 再現性を優先するなら ghcr.io/xsavikx/aws-emulator:1.0.322 のようにタグを固定する。
+  AWS_EMULATOR_IMAGE: ghcr.io/xsavikx/aws-emulator:latest
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
 
@@ -36,10 +35,12 @@ jobs:
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff
 
+      # AWS Emulator をコンテナで起動し、AWS_ENDPOINT_URL などの接続設定を以降のステップに渡す
       - name: Start AWS Emulator
-        uses: ./.github/actions/setup-aws-emulator
+        uses: xSAVIKx/run-aws-emulator@3a10c6c7da7da236e5d0014a38f85d25f5060a73 # v1.0.1
         with:
-          version: ${{ env.AWS_EMULATOR_VERSION }}
+          image: ${{ env.AWS_EMULATOR_IMAGE }}
+          region: ap-northeast-1
 
       - name: Enable emulator-only provider override
         run: cp emulator/aws_provider_override.tf terraform/
